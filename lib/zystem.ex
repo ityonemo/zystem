@@ -15,13 +15,50 @@ defmodule Zystem do
   {"hello\n", 0}
   ```
   """
-  def cmd(command, args, _opts) do
+  def cmd(command, args, opts) do
     command
     |> Nif.build(args)
     |> Nif.exec
 
+    results = collect_results()
+
+    {results.stdout, results.retval}
+    |> transform_collectible(Keyword.get(opts, :into))
+  end
+
+  defp transform_collectible({stdout, retval}, nil) do
+    stdout_bin = stdout
+    |> Enum.reverse
+    |> IO.iodata_to_binary
+    {stdout_bin, retval}
+  end
+
+  defp transform_collectible({stdout, retval}, collectible) do
+    collected = stdout
+    |> Enum.reverse
+    |> Enum.into(collectible)
+    {collected, retval}
+  end
+
+  def collect_results(so_far \\ %{stdout: [], stderr: []}) do
     receive do
-      any -> any
+      {:stdout, content} ->
+        so_far
+        |> append(:stdout, content)
+        |> collect_results
+      {:stderr, content} ->
+        so_far
+        |> append(:stderr, content)
+        |> collect_results
+      {:end, retval} ->
+        Map.put(so_far, :retval, retval)
     end
   end
+
+  defp append(so_far, key, content) when is_map_key(so_far, key) do
+    # iolist it.
+    %{so_far | key => [content | Map.fetch!(so_far, key)]}
+  end
+
+  defp append(so_far, key, content), do: Map.put(so_far, key, content)
 end
