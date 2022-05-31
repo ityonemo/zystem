@@ -1,18 +1,27 @@
 defmodule Zystem do
-  @moduledoc """
-  Documentation for `Zystem`.
-  """
 
+  alias Zystem.Nif
+
+  def cmd(command, args, opts \\ [])
+
+  @spec cmd(binary(), [binary()], keyword()) ::
+    {Collectable.t(), exit_status :: non_neg_integer()}
   @doc """
-  Hello world.
 
-  ## Examples
+  A clone of System.cmd
 
-      iex> Zystem.hello()
-      :world
-
+  ```elixir
+  iex> Zystem.cmd("echo", ["hello"])
+  {"hello\n", 0}
+  ```
   """
-  def hello do
-    :world
+  def cmd(command, args, _opts) do
+    command
+    |> Nif.build(args)
+    |> Nif.exec
+
+    receive do
+      any -> any
+    end
   end
 end
