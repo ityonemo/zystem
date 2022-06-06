@@ -16,14 +16,25 @@ defmodule Zystem do
   ```
   """
   def cmd(command, args, opts) do
+
+    zig_opts = get_zig_opts(opts)
+
     command
-    |> Nif.build(args)
-    |> Nif.exec
+    |> Nif.build(args, zig_opts)
+    |> Nif.exec()
 
     results = collect_results()
 
     {results.stdout, results.retval}
     |> transform_collectible(Keyword.get(opts, :into))
+  end
+
+  defp get_zig_opts(opts) do
+    opts
+    |> Enum.flat_map(fn
+      {:cd, path} -> [cwd: path]
+      _ -> []
+    end)
   end
 
   defp transform_collectible({stdout, retval}, nil) do

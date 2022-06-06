@@ -13,6 +13,8 @@ defmodule Zystem.Nif do
     @cInclude("wait.h");
   });
 
+  const struct_from_kwl = @import("_struct_from_kwl.zig").struct_from_kwl;
+
   fn setup() void {
     var sa: sig.sigaction = undefined;
     var sa_ptr = @ptrCast([*]u8, &sa);
@@ -36,8 +38,12 @@ defmodule Zystem.Nif do
    child.*.deinit();
   }
 
-  /// nif: build/2
-  fn build(env: beam.env, cmd: []u8, beam_args: beam.term) !beam.term {
+  const ChildOpts = struct{
+    cwd: ?[]const u8 = null,
+  };
+
+  /// nif: build/3
+  fn build(env: beam.env, cmd: []u8, beam_args: beam.term, opts: beam.term) !beam.term {
     // create the arguments list.  Simultaneously checks if it's a proper
     // list.  If it's improper or not a list, raises FCE.
     var length: c_uint = undefined;
@@ -72,9 +78,14 @@ defmodule Zystem.Nif do
     var child: child_process_t = try std.ChildProcess.init(args, beam.allocator);
     errdefer child.deinit();
 
+    // get more options from the opts piece
+    var child_opts = try struct_from_kwl(e, env, ChildOpts, opts);
+
     child.stdin_behavior = .Ignore;
     child.stdout_behavior = .Pipe;
     child.stderr_behavior = .Inherit;
+
+    child.cwd = child_opts.cwd;
 
     var res = try __resource__.create(child_process_t, env, child);
     __resource__.release(child_process_t, env, res);
