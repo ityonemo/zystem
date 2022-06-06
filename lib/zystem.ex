@@ -16,7 +16,6 @@ defmodule Zystem do
   ```
   """
   def cmd(command, args, opts) do
-
     zig_opts = get_zig_opts(opts)
 
     command

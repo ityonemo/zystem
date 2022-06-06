@@ -11,17 +11,26 @@ defmodule ZystemTest.SystemCmdTest do
   end
 
   test "error values are returned" do
-    assert {"", 1} == System.cmd("false", [])
-    assert {"", 1} == Zystem.cmd("false", [])
+    assert_both({"", 1}, "false", [])
   end
 
   test "into option" do
-    assert {["hello world\n"], 0} == System.cmd("echo", ["hello", "world"], into: [])
-    assert {["hello world\n"], 0} == Zystem.cmd("echo", ["hello", "world"], into: [])
+    assert_both({["hello world\n"], 0}, "echo", ["hello", "world"], into: [])
   end
 
   test "cd option" do
-    assert {"example\n", 0} == System.cmd("dir", [], cd: "test/assets/dir")
-    assert {"example\n", 0} == Zystem.cmd("dir", [], cd: "test/assets/dir")
+    assert_both({"example\n", 0}, "dir", [], cd: "test/assets/dir")
+  end
+
+  # TODO: obtain this from zigler on 0.10.0
+  @zig_path (case :os.type() do
+    {:unix, :linux} ->
+      Path.absname("deps/zigler/zig/zig-linux-x86_64-0.9.1/zig")
+    {:unix, :darwin} ->
+      Path.absname("deps/zigler/zig/zig-macos-x86_64-0.9.1/zig")
+    end)
+
+  test "env option" do
+    assert_both({"bar", 0}, @zig_path, ["run", Path.join(__DIR__, "assets/env.zig"), "--", "foo"], env: [{"foo", "bar"}])
   end
 end
