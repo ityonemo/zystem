@@ -32,6 +32,7 @@ defmodule Zystem do
     opts
     |> Enum.flat_map(fn
       {:cd, path} -> [cwd: path]
+      env = {:env, _} -> [env]
       _ -> []
     end)
   end

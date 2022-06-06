@@ -14,6 +14,7 @@ defmodule Zystem.Nif do
   });
 
   const struct_from_kwl = @import("_struct_from_kwl.zig").struct_from_kwl;
+  const env_map_from_term = @import("_env_map_from_term.zig").env_map_from_term;
 
   fn setup() void {
     var sa: sig.sigaction = undefined;
@@ -34,12 +35,21 @@ defmodule Zystem.Nif do
     for (child.*.argv) |arg| {
       beam.allocator.free(arg);
     }
+
+    if (child.*.env_map) | const_env_map | {
+      // unfortunately const erasure here is necessary.
+      var env_map = @intToPtr(*std.BufMap, @ptrToInt(const_env_map));
+      env_map.deinit();
+      beam.allocator.destroy(env_map);
+    }
+
     beam.allocator.free(child.*.argv);
-   child.*.deinit();
+    child.*.deinit();
   }
 
   const ChildOpts = struct{
     cwd: ?[]const u8 = null,
+    env: ?beam.term = null,
   };
 
   /// nif: build/3
@@ -80,6 +90,11 @@ defmodule Zystem.Nif do
 
     // get more options from the opts piece
     var child_opts = try struct_from_kwl(e, env, ChildOpts, opts);
+
+    // possibly create an env_map
+    if (child_opts.env) |env_term| {
+      child.env_map = try env_map_from_term(e, env, env_term);
+    }
 
     child.stdin_behavior = .Ignore;
     child.stdout_behavior = .Pipe;

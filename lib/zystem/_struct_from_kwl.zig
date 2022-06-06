@@ -42,11 +42,10 @@ pub fn struct_from_kwl(comptime e: type, env: beam.env, comptime T: type, opts: 
         }
     }
 
-    var index: usize = 0;
     var this_list = opts;
     var head_term: beam.term = undefined;
     var continue_list = (1 == e.enif_get_list_cell(env, this_list, &head_term, &this_list));
-    while (continue_list) : (index += 1) {
+    while (continue_list) {
         var tuple_length: c_int = undefined;
         var tuple_terms: [*c]const beam.term = undefined;
 
@@ -70,6 +69,7 @@ pub fn struct_from_kwl(comptime e: type, env: beam.env, comptime T: type, opts: 
                 if (std.mem.eql(u8, field.name, key)) {
                     @field(result, field.name) =
                         switch (field_type) {
+                        beam.term => val_term,
                         []u8 => try beam.get_char_slice(env, val_term),
                         else => try beam.get(field_type, env, val_term),
                     };

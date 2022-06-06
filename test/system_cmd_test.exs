@@ -31,6 +31,11 @@ defmodule ZystemTest.SystemCmdTest do
     end)
 
   test "env option" do
-    assert_both({"bar", 0}, @zig_path, ["run", Path.join(__DIR__, "assets/env.zig"), "--", "foo"], env: [{"foo", "bar"}])
+    path = Path.join(System.tmp_dir!(), "zystem-tests")
+    # use zig to build the test asset.
+    Zystem.cmd(@zig_path, ["build-exe", "test/assets/test-zig-env.zig", "--cache-dir", path])
+
+    # try building the file
+    assert_both({"bar", 0}, Path.absname("test-zig-env"), ["foo"], env: [{"foo", "bar"}])
   end
 end

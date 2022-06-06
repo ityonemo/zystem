@@ -24,3 +24,6 @@ zystem-*.tar
 
 # Temporary files, for example, from tests.
 /tmp/
+
+# executable files written by the test suite
+test-zig-*
