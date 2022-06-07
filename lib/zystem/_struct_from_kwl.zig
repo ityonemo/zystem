@@ -1,5 +1,6 @@
 const beam = @import("beam.zig");
 const std = @import("std");
+const enum_from_atom = @import("_enum_from_atom.zig").enum_from_atom;
 
 const KeywordError = error{NotKeyword};
 
@@ -28,10 +29,10 @@ fn remove_const(comptime T: type) type {
 pub fn struct_from_kwl(comptime e: type, env: beam.env, comptime T: type, opts: beam.term) !T {
     const type_info = @typeInfo(T);
     if (type_info != .Struct) {
-        @compileError("the seed structure in struct_from_kwl must be a struct");
+        @compileError("the seed type in struct_from_kwl must be a struct");
     }
     if (type_info.Struct.is_tuple) {
-        @compileError("the seed structure in struct.from_kwl must not be a tuple");
+        @compileError("the seed type in struct.from_kwl must not be a tuple");
     }
 
     var result: T = undefined;
@@ -71,17 +72,27 @@ pub fn struct_from_kwl(comptime e: type, env: beam.env, comptime T: type, opts: 
                         switch (field_type) {
                         beam.term => val_term,
                         []u8 => try beam.get_char_slice(env, val_term),
-                        else => try beam.get(field_type, env, val_term),
+                        else => try get(field_type, env, val_term),
                     };
                 }
             }
         }
 
         continue_list = (1 == e.enif_get_list_cell(env, this_list, &head_term, &this_list));
+
         if (0 == e.enif_is_list(env, this_list)) {
             return KeywordError.NotKeyword;
         }
     }
-
     return result;
+}
+
+fn get(comptime T: type, env: beam.env, val_term: beam.term) !T {
+    const type_info = @typeInfo(T);
+
+    if (type_info == .Enum) {
+        return enum_from_atom(T, env, val_term);
+    } else {
+        return beam.get(T, env, val_term);
+    }
 }

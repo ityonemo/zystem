@@ -50,6 +50,9 @@ defmodule Zystem.Nif do
   const ChildOpts = struct{
     cwd: ?[]const u8 = null,
     env: ?beam.term = null,
+    stdin: std.ChildProcess.StdIo = .Ignore,
+    stdout: std.ChildProcess.StdIo = .Pipe,
+    stderr: std.ChildProcess.StdIo = .Inherit
   };
 
   /// nif: build/3
@@ -96,9 +99,9 @@ defmodule Zystem.Nif do
       child.env_map = try env_map_from_term(e, env, env_term);
     }
 
-    child.stdin_behavior = .Ignore;
+    child.stdin_behavior = child_opts.stdin;
     child.stdout_behavior = .Pipe;
-    child.stderr_behavior = .Inherit;
+    child.stderr_behavior = child_opts.stderr; // child_opts.stderr;
 
     child.cwd = child_opts.cwd;
 

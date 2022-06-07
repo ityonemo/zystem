@@ -33,9 +33,20 @@ defmodule ZystemTest.SystemCmdTest do
   test "env option" do
     path = Path.join(System.tmp_dir!(), "zystem-tests")
     # use zig to build the test asset.
-    Zystem.cmd(@zig_path, ["build-exe", "test/assets/test-zig-env.zig", "--cache-dir", path])
+    Zystem.cmd(@zig_path, ["build-exe", "test/assets/test-env.zig", "--cache-dir", path])
+    File.rename!("test-env", "test-env.exe")
 
     # try building the file
-    assert_both({"bar", 0}, Path.absname("test-zig-env"), ["foo"], env: [{"foo", "bar"}])
+    assert_both({"bar", 0}, Path.absname("test-env.exe"), ["foo"], env: [{"foo", "bar"}])
+  end
+
+  test "stderr_to_stdout option" do
+    path = Path.join(System.tmp_dir!(), "zystem-tests")
+    # use zig to build the test asset.
+    Zystem.cmd(@zig_path, ["build-exe", "test/assets/test-stderr_to_stdout.zig", "--cache-dir", path])
+    File.rename!("test-stderr_to_stdout", "test-stderr_to_stdout.exe")
+
+    # try building the file
+    assert_both({"stderr\nstdout\n", 0}, Path.absname("test-stderr_to_stdout.exe"), [], stderr_to_stdout: true)
   end
 end

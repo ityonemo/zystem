@@ -26,4 +26,4 @@ zystem-*.tar
 /tmp/
 
 # executable files written by the test suite
-test-zig-*
+test-*.exe

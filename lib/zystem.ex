@@ -28,11 +28,13 @@ defmodule Zystem do
     |> transform_collectible(Keyword.get(opts, :into))
   end
 
+  @copy_opts [:env, :stdin, :stdout, :stderr]
   defp get_zig_opts(opts) do
     opts
     |> Enum.flat_map(fn
       {:cd, path} -> [cwd: path]
-      env = {:env, _} -> [env]
+      {:stderr_to_stdout, true} -> [stdout: Pipe, stderr: Pipe]
+      opt = {key, _} when key in @copy_opts -> [opt]
       _ -> []
     end)
   end
