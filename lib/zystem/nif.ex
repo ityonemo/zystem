@@ -1,6 +1,10 @@
 defmodule Zystem.Nif do
   use Zig, link_libc: true
 
+  # SOME OF THIS CODE IS SHAMELESSLY STOLEN FROM THE ZIG STD LIBRARY.
+  # THAT IS (C) some-time-in-the-past The Zig Authors
+  # I WILL DO A BETTER ATTRIBUTION WHEN THIS THING IS MORE FLESHED OUT.
+
   ~Z"""
   const BEAM_FALSE = 0;
   const os = std.os;
