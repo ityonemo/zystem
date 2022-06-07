@@ -30,23 +30,28 @@ defmodule ZystemTest.SystemCmdTest do
       Path.absname("deps/zigler/zig/zig-macos-x86_64-0.9.1/zig")
     end)
 
-  test "env option" do
+  defp build(what) do
     path = Path.join(System.tmp_dir!(), "zystem-tests")
-    # use zig to build the test asset.
-    Zystem.cmd(@zig_path, ["build-exe", "test/assets/test-env.zig", "--cache-dir", path])
-    File.rename!("test-env", "test-env.exe")
 
-    # try building the file
+    Zystem.cmd(@zig_path, ["build-exe", "test/assets/test-#{what}.zig", "--cache-dir", path])
+    File.rename!("test-#{what}", "test-#{what}.exe")
+  end
+
+  setup_all do
+    Enum.each(~w(env stderr_to_stdout), &build/1)
+  end
+
+  test "env option" do
     assert_both({"bar", 0}, Path.absname("test-env.exe"), ["foo"], env: [{"foo", "bar"}])
   end
 
   test "stderr_to_stdout option" do
-    path = Path.join(System.tmp_dir!(), "zystem-tests")
-    # use zig to build the test asset.
-    Zystem.cmd(@zig_path, ["build-exe", "test/assets/test-stderr_to_stdout.zig", "--cache-dir", path])
-    File.rename!("test-stderr_to_stdout", "test-stderr_to_stdout.exe")
-
-    # try building the file
     assert_both({"stderr\nstdout\n", 0}, Path.absname("test-stderr_to_stdout.exe"), [], stderr_to_stdout: true)
+  end
+
+  test "ignore stdout" do
+    assert {"stderr\n", 0} = "test-stderr_to_stdout.exe"
+    |> Path.absname
+    |> Zystem.cmd([], stderr: Pipe, stdout: Ignore)
   end
 end
