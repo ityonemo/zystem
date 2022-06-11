@@ -85,7 +85,7 @@ pub fn asSynonymousAdvanced(comptime T: type, source_enum: anytype, comptime opt
     const src_type_info = @typeInfo(S);
 
     if (dst_type_info != .Enum) { @compileError("the destination type for asSynonymousAdvanced " ++ @typeName(T) ++ "is not an enum type."); }
-    if (src_type_info != .Enum) { @compileError("the source type for asSynonymousAdvarced" ++ @typeName(S) ++ "is not an enum type"); }
+    if (src_type_info != .Enum) { @compileError("the source type for asSynonymousAdvanced" ++ @typeName(S) ++ "is not an enum type"); }
 
     // run checks to make sure that the comptime options are honored
     inline for (src_type_info.Enum.fields) |src_field| {
@@ -100,19 +100,26 @@ pub fn asSynonymousAdvanced(comptime T: type, source_enum: anytype, comptime opt
                 }
             }
 
-            // TODO: decide what actual int size to use here:
-            if (@enumToInt(source_enum) == src_field.value) {
+            // next if statement is comptime and will be pruned down to a set of returns
+            // only seen by relevant clauses.  Ignore when you have .strictValues
+            // because in that case you can do a direct conversion, for .strictValues
+            // this inline for loop is just a comptime sanity check.
+            if ((!options.strictValues) and @enumToInt(source_enum) == src_field.value) {
                 return @intToEnum(T, dst_value);
             }
 
         } else if (options.strictInclusion) {
             @compileError("the destination type " ++ @typeName(T) ++ " does not have the tag " ++ src_field.name ++ " which is in " ++ @typeName(S));
-        } else {
-            // "trust me, I will never supply an enum with a mismatched name"
-            unreachable;
         }
     }
-    unreachable;
+
+    if (options.strictValues) {
+        return @intToEnum(T, @enumToInt(source_enum));
+    } else {
+        // "trust me, i will never supply an enum value that doesn't have a synonym in the target type enum"
+        unreachable;
+    }
+
 }
 
 fn matchingEnumValue(comptime target: std.builtin.TypeInfo, comptime name: []const u8) ?comptime_int {
@@ -134,3 +141,35 @@ test "asSynonymous with default settings works" {
 
     try expect(big == .a);
 }
+
+test "asSynonymous with strictInclusion loosened is ok" {
+    const EnumOne = enum{a, b, c};
+    const EnumTwo = enum{b, c, d};
+
+    // note that sending `.c` is safety-checked ub.
+    const one: EnumOne = .b;
+    const two: EnumTwo = asSynonymousAdvanced(EnumTwo, one, .{.strictInclusion = false});
+
+    try expect(two == .b);
+}
+
+test "asSynonymous with strictValues set works" {
+    const EnumOne = enum(u8){a = 1, b = 3};
+    const EnumTwo = enum(u8){a = 1, b = 3, c};
+
+    const one: EnumOne = .b;
+    const two: EnumTwo = asSynonymousAdvanced(EnumTwo, one, .{.strictValues = true});
+
+    try expect(two == .b);
+}
+
+//test "asSynonymous with strictValues set and strictInclusion loosened works" {
+//    const EnumOne = enum(u8){a, b = 1, c = 4};
+//    const EnumTwo = enum(u8){b = 1, c = 2, d};
+//
+//    // note that sending `.a` (doesn't exist in target) or `.c` (mismatched value) is safety-checked UB.
+//    const one: EnumOne = .b;
+//    const two: EnumTwo = asSynonymousAdvanced(EnumTwo, one, .{.strictInclusion = false, .strictValues = true});
+//
+//    try expect(two == .b);
+//}
