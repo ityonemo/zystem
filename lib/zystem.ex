@@ -33,7 +33,7 @@ defmodule Zystem do
     opts
     |> Enum.flat_map(fn
       {:cd, path} -> [cwd: path]
-      {:stderr_to_stdout, true} -> [stdout: Pipe, stderr: Pipe]
+      {:stderr_to_stdout, true} -> [stdout: Pipe, stderr: :stdout]
       opt = {key, _} when key in @copy_opts -> [opt]
       _ -> []
     end)

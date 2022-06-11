@@ -51,12 +51,21 @@ defmodule Zystem.Nif do
     child.*.deinit();
   }
 
+  const Redirects = enum { stdout };
+
+  const StdErr = union {
+    stdio: std.ChildProcess.StdIo,
+    extra: Redirects,
+  };
+
+  const StdFd = enum { stdin, stdout, stderr };
+
   const ChildOpts = struct{
     cwd: ?[]const u8 = null,
     env: ?beam.term = null,
     stdin: std.ChildProcess.StdIo = .Ignore,
     stdout: std.ChildProcess.StdIo = .Pipe,
-    stderr: std.ChildProcess.StdIo = .Inherit
+    stderr: StdErr = std.ChildProcess.StdIo.Inherit
   };
 
   /// nif: build/3
@@ -104,7 +113,7 @@ defmodule Zystem.Nif do
     }
 
     child.stdin_behavior = child_opts.stdin;
-    child.stdout_behavior = .Pipe;
+    child.stdout_behavior = child_opts.stdout;
     child.stderr_behavior = child_opts.stderr; // child_opts.stderr;
 
     child.cwd = child_opts.cwd;
@@ -143,40 +152,64 @@ defmodule Zystem.Nif do
     self: beam.pid
   ) !void {
 
-    // TODO: incorporate stdout stuff too.
-    var poll = [1]os.pollfd{.{.fd = child.stdout.?.handle, .events = os.POLL.IN, .revents = undefined }};
+    var poll_buffer: [2]os.pollfd = undefined;
+    var fds: [2]StdFd = undefined;
+
+    var poll_count: usize = 0;
+
+    // check stdout, it pipes if it's Pipe or inherit
+    if ((child.stdout_behavior == .Pipe) or (child.stdout_behavior == .Inherit)) {
+      poll_buffer[poll_count] = .{.fd = child.stdout.?.handle, .events = os.POLL.IN, .revents = undefined };
+      fds[poll_count] = .stdout;
+      poll_count += 1;
+    }
+
+    if (child.stderr_behavior == .Pipe) {
+      poll_buffer[poll_count] = .{.fd = child.stderr.?.handle, .events = os.POLL.IN, .revents = undefined };
+      fds[poll_count] = .stderr;
+      poll_count += 1;
+    }
+
+    var poll = poll_buffer[0..poll_count];
 
     const err_mask = os.POLL.ERR | os.POLL.NVAL | os.POLL.HUP;
 
-    // TODO: make the buffer size variable here.  CONSIDER USING A DIFFERENT BUFFERING STRATEGY.
+    // TODO: make the buffer size variable here.  OR CONSIDER USING A DIFFERENT BUFFERING STRATEGY.
     var buf: [512]u8 = undefined;
+    var finished: usize = 0;
 
     while (true) {
-        const events = try os.poll(&poll, std.math.maxInt(i32));
+        const events = try os.poll(poll, std.math.maxInt(i32));
         if (events == 0) continue;
 
         // Try reading whatever is available before checking the error
         // conditions.
         // It's still possible to read after a POLL.HUP is received, always
         // check if there's some data waiting to be read first.
-        if (poll[0].revents & os.POLL.IN != 0) {
-            // stdout is ready.
-            const nread = try os.read(poll[0].fd, buf[0..]);
 
-            // Exit the loop if we have everything, otherwise send to the parent process
+        for (poll) |polled, index| {
+          if (polled.revents & os.POLL.IN != 0) {
+            // this file descriptor is ready to be read.
+            const nread = try os.read(polled.fd, buf[0..]);
+
             if (nread == 0) {
-              break;
+              // exit the loop if we have exhausted all things
+              if (finished == poll_count) { return; }
+              // otherwise keep looping, but mark this as finished.
+              finished += 1;
+              continue;
             } else {
               var binary = beam.make_slice(env, buf[0..nread]);
-              send_response(env, self, "stdout", binary);
+              send_response(env, self, fds[index], binary);
             }
-        } else {
-            if (poll[0].revents & err_mask != 0) { break; }
+          } else {
+            if (polled.revents & err_mask != 0) { break; }
+          }
         }
     }
   }
 
-  fn send_response(env: beam.env, self: beam.pid, atom: []const u8, term: beam.term) void {
+  fn send_response(env: beam.env, self: beam.pid, atom: anytype, term: beam.term) void {
     var tuple = [_]beam.term{beam.make_atom(env, atom), term};
     _ = beam.send(
       env,
