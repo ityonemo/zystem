@@ -19,54 +19,56 @@ defmodule Zystem.Nif do
 
   const struct_from_kwl = @import("_struct_from_kwl.zig").struct_from_kwl;
   const env_map_from_term = @import("_env_map_from_term.zig").env_map_from_term;
+  const make_atom = @import("_make_atom.zig").make_atom;
+  const isTag = @import("_enum_tricks.zig").isTag;
+  const asSynonymousAdvanced = @import("_enum_tricks.zig").asSynonymousAdvanced;
+  const spawnShared = @import("_spawn_shared.zig").spawnShared;
 
-  fn setup() void {
-    var sa: sig.sigaction = undefined;
-    var sa_ptr = @ptrCast([*]u8, &sa);
-    for (sa_ptr[0..@sizeOf(sig.sigaction)]) | *byte | { byte.* = 0; }
+  const ZystemOpts = struct{
+    cwd: ?[]const u8 = null,
+    env: ?beam.term = null,
+    stdin: std.ChildProcess.StdIo = .Ignore,
+    stdout: std.ChildProcess.StdIo = .Pipe,
+    stderr: StdErr = .Inherit
+  };
 
-    sig.sigfillset(&sa.sa_mask);
-    sa.sa_handler = null;
-    sa.sa_flags = 0;
-    sig.sigaction(sig.SIGCHLD, &sa, null);
-  }
+  /// resource: ZystemRes definition
+  const ZystemRes = struct {
+    child: *std.ChildProcess,
+    opts: ZystemOpts,
+  };
 
-  /// resource: child_process_t definition
-  const child_process_t = *std.ChildProcess;
+  /// resource: ZystemRes cleanup
+  fn zystem_info_cleanup(_: beam.env, zystem_res: *ZystemRes) void {
+    const child = zystem_res.child;
 
-  /// resource: child_process_t cleanup
-  fn ChildProcess_cleanup(_: beam.env, child: *child_process_t) void {
-    for (child.*.argv) |arg| {
+    for (child.argv) |arg| {
       beam.allocator.free(arg);
     }
 
-    if (child.*.env_map) | const_env_map | {
+    if (child.env_map) | const_env_map | {
       // unfortunately const erasure here is necessary.
       var env_map = @intToPtr(*std.BufMap, @ptrToInt(const_env_map));
       env_map.deinit();
       beam.allocator.destroy(env_map);
     }
 
-    beam.allocator.free(child.*.argv);
-    child.*.deinit();
+    beam.allocator.free(child.argv);
+    child.deinit();
   }
 
-  const Redirects = enum { stdout };
-
-  const StdErr = union {
-    stdio: std.ChildProcess.StdIo,
-    extra: Redirects,
+  const StdErr = enum {
+    Ignore, Pipe, Inherit, Close, stdout
   };
 
   const StdFd = enum { stdin, stdout, stderr };
 
-  const ChildOpts = struct{
-    cwd: ?[]const u8 = null,
-    env: ?beam.term = null,
-    stdin: std.ChildProcess.StdIo = .Ignore,
-    stdout: std.ChildProcess.StdIo = .Pipe,
-    stderr: StdErr = std.ChildProcess.StdIo.Inherit
-  };
+  const ExitEnum = enum { end };
+
+  fn stderr_behavior(option: StdErr) std.ChildProcess.StdIo {
+    if (option == .stdout) return .Ignore;
+    return asSynonymousAdvanced(std.ChildProcess.StdIo, option, .{.strictInclusion = false});
+  }
 
   /// nif: build/3
   fn build(env: beam.env, cmd: []u8, beam_args: beam.term, opts: beam.term) !beam.term {
@@ -99,13 +101,12 @@ defmodule Zystem.Nif do
     }
     errdefer for(args[1..]) | arg | { beam.allocator.free(arg); };
 
-    // create the child process and then
     // NB this is going to change on Zig 0.10
-    var child: child_process_t = try std.ChildProcess.init(args, beam.allocator);
+    var child = try std.ChildProcess.init(args, beam.allocator);
     errdefer child.deinit();
 
     // get more options from the opts piece
-    var child_opts = try struct_from_kwl(e, env, ChildOpts, opts);
+    var child_opts = try struct_from_kwl(e, env, ZystemOpts, opts);
 
     // possibly create an env_map
     if (child_opts.env) |env_term| {
@@ -114,12 +115,12 @@ defmodule Zystem.Nif do
 
     child.stdin_behavior = child_opts.stdin;
     child.stdout_behavior = child_opts.stdout;
-    child.stderr_behavior = child_opts.stderr; // child_opts.stderr;
+    child.stderr_behavior = stderr_behavior(child_opts.stderr);
 
     child.cwd = child_opts.cwd;
 
-    var res = try __resource__.create(child_process_t, env, child);
-    __resource__.release(child_process_t, env, res);
+    var res = try __resource__.create(ZystemRes, env, .{.child = child, .opts = child_opts});
+    __resource__.release(ZystemRes, env, res);
 
     return res;
   }
@@ -133,17 +134,23 @@ defmodule Zystem.Nif do
   }
 
   /// nif: exec/1 dirty_io
-  fn exec(env: beam.env, child_term: beam.term) !void {
-    var child = try __resource__.fetch(child_process_t, env, child_term);
+  fn exec(env: beam.env, zystem_res: beam.term) !void {
+    const res = try __resource__.fetch(ZystemRes, env, zystem_res);
+    var child = res.child;
+
     const self = try beam.self(env);
 
-    try child.spawn();
+    if (res.opts.stderr == .stdout) {
+      try spawnShared(child);
+    } else {
+      try child.spawn();
+    }
 
     try collect_output(env, child, self);
     var result = try child.wait();
 
     // in the future, make the last bit anytype.
-    send_response(env, self, "end", beam.make_u8(env, result.Exited));
+    try send_response(env, self, ExitEnum.end, beam.make_u8(env, result.Exited));
   }
 
   fn collect_output(
@@ -151,7 +158,6 @@ defmodule Zystem.Nif do
     child: *const std.ChildProcess,
     self: beam.pid
   ) !void {
-
     var poll_buffer: [2]os.pollfd = undefined;
     var fds: [2]StdFd = undefined;
 
@@ -178,7 +184,7 @@ defmodule Zystem.Nif do
     var buf: [512]u8 = undefined;
     var finished: usize = 0;
 
-    while (true) {
+    while (finished < poll_count) {
         const events = try os.poll(poll, std.math.maxInt(i32));
         if (events == 0) continue;
 
@@ -195,22 +201,26 @@ defmodule Zystem.Nif do
             if (nread == 0) {
               // exit the loop if we have exhausted all things
               if (finished == poll_count) { return; }
-              // otherwise keep looping, but mark this as finished.
+              // otherwise keep looping, but mark this as having read data.
               finished += 1;
               continue;
             } else {
               var binary = beam.make_slice(env, buf[0..nread]);
-              send_response(env, self, fds[index], binary);
+              try send_response(env, self, fds[index], binary);
             }
           } else {
-            if (polled.revents & err_mask != 0) { break; }
+            if (polled.revents & err_mask != 0) {
+              finished += 1;
+              break;
+            }
           }
         }
     }
   }
 
-  fn send_response(env: beam.env, self: beam.pid, atom: anytype, term: beam.term) void {
-    var tuple = [_]beam.term{beam.make_atom(env, atom), term};
+  fn send_response(env: beam.env, self: beam.pid, atom: anytype, term: beam.term) !void {
+    var tuple = [_]beam.term{try make_atom(env, atom), term};
+
     _ = beam.send(
       env,
       self,

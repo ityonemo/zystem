@@ -27,3 +27,6 @@ zystem-*.tar
 
 # executable files written by the test suite
 test-*.exe
+
+# zig caches from testing zig
+/zig-cache/

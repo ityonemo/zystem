@@ -50,7 +50,9 @@ defmodule ZystemTest.SystemCmdTest do
   end
 
   test "ignore stdout" do
-    assert {"stderr\n", 0} = "test-stderr_to_stdout.exe"
+    # note that sending stderr to pipe suppresses it from winding up in the
+    # stderr stream in the test suite.
+    assert {"", 0} = "test-stderr_to_stdout.exe"
     |> Path.absname
     |> Zystem.cmd([], stderr: Pipe, stdout: Ignore)
   end

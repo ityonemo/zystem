@@ -19,7 +19,10 @@ pub fn enum_from_atom(comptime T: type, env: beam.env, enum_atom: beam.term) !T 
     // function.  You're not allowed to used this on anything that isn't an enum, or
     // possibly, a union of Enums.
     if ((type_info != .Enum) and (type_info != .Union)) {
-        @compileError("the seed type in enum_from_atom must be an enum or a union with an enum");
+        @compileError("the seed type in enum_from_atom must be an enum or a union with an enum, got "
+          ++ @typeName(T)
+          ++ " which is "
+          ++ @tagName(type_info));
     }
 
     if (type_info == .Union) {
@@ -29,15 +32,17 @@ pub fn enum_from_atom(comptime T: type, env: beam.env, enum_atom: beam.term) !T 
     var atom_slice = try beam.get_atom_slice(env, enum_atom);
     defer beam.allocator.free(atom_slice);
 
+    const maybe_elixir = atom_slice.len >= 7;
+
     // at compile-time, unroll a check for each of the possible Enum names
     inline for (type_info.Enum.fields) |field| {
         // if it's capitalized, it might be an elixir alias.  Check to see if
         // it matches the case where "Elixir." has been prependend to the Enum name.
         switch (field.name[0]) {
-            'A'...'Z' => if (std.mem.eql(u8, atom_slice[0..7], "Elixir.") and std.mem.eql(u8, atom_slice[7..], field.name)) {
+            'A'...'Z' => if (maybe_elixir and std.mem.eql(u8, atom_slice[0..7], "Elixir.") and std.mem.eql(u8, atom_slice[7..], field.name)) {
                 return @intToEnum(T, field.value);
             },
-            _ => {},
+            else => {},
         }
 
         // fallback for Elixir alias failure, or general case -- just see if the atom matches enum name.
@@ -69,7 +74,7 @@ fn union_with_enum_from_atom(comptime T: type, env: beam.env, enum_atom: beam.te
     }
 
     if (!has_enums) {
-        @compileError("the seed type in enum_for_atom is a union that does not have any enums");
+        @compileError("the seed type in enum_for_atom is a union that does not have any enums, got" ++ @typeName(T));
     }
 
     // none of the unrolled union fields matched, so we have to give up.
